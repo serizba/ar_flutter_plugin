@@ -37,6 +37,21 @@ fun serializePose(pose: Pose): DoubleArray {
     return serializedPoseDouble
 }
 
+fun serializeIntrinsics(intrinsics: CameraIntrinsics): DoubleArray {
+    val serializedIntrinsics = DoubleArray(6)
+    
+    serializedIntrinsics[0] = intrinsics.getFocalLength()[0].toDouble()
+    serializedIntrinsics[1] = intrinsics.getFocalLength()[1].toDouble()
+    
+    serializedIntrinsics[2] = intrinsics.getPrincipalPoint()[0].toDouble()
+    serializedIntrinsics[3] = intrinsics.getPrincipalPoint()[1].toDouble()
+
+    serializedIntrinsics[4] = intrinsics.getImageDimensions()[0].toDouble()
+    serializedIntrinsics[5] = intrinsics.getImageDimensions()[1].toDouble()
+
+    return serializedIntrinsics
+}
+
 fun serializePoseWithScale(pose: Pose, scale: Vector3): DoubleArray {
     val serializedPose = FloatArray(16)
     pose.toMatrix(serializedPose, 0)

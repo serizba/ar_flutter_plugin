@@ -22,6 +22,7 @@ import io.carius.lars.ar_flutter_plugin_flutterflow.Serialization.deserializeMat
 import io.carius.lars.ar_flutter_plugin_flutterflow.Serialization.serializeAnchor
 import io.carius.lars.ar_flutter_plugin_flutterflow.Serialization.serializeHitResult
 import io.carius.lars.ar_flutter_plugin_flutterflow.Serialization.serializePose
+import io.carius.lars.ar_flutter_plugin_flutterflow.Serialization.serializeIntrinsics
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.loader.FlutterLoader
 import io.flutter.plugin.common.BinaryMessenger
@@ -36,6 +37,12 @@ import java.util.concurrent.CompletableFuture
 import android.R
 import com.google.ar.sceneform.rendering.*
 
+import android.media.Image
+import android.graphics.ImageFormat
+import android.graphics.BitmapFactory
+import android.graphics.Rect
+import android.graphics.YuvImage
+
 import android.view.ViewGroup
 
 import com.google.ar.core.TrackingState
@@ -45,7 +52,34 @@ import com.google.ar.core.TrackingState
 
 
 
+// Converts YUV_420_888 Image to NV21 format (needed for YuvImage)
+fun imageToNV21(image: Image): ByteArray {
+    val width = image.width
+    val height = image.height
+    val ySize = width * height
+    val uvSize = width * height / 2
+    val nv21 = ByteArray(ySize + uvSize)
 
+    val yBuffer = image.planes[0].buffer
+    val uBuffer = image.planes[1].buffer
+    val vBuffer = image.planes[2].buffer
+
+    yBuffer.get(nv21, 0, ySize) // Copy Y plane
+
+    val rowStride = image.planes[1].rowStride
+    val pixelStride = image.planes[1].pixelStride
+    val uv = ByteArray(uvSize)
+    var index = 0
+    for (row in 0 until height / 2) {
+        for (col in 0 until width / 2) {
+            val uIndex = row * rowStride + col * pixelStride
+            uv[index++] = vBuffer[uIndex] // V
+            uv[index++] = uBuffer[uIndex] // U
+        }
+    }
+    System.arraycopy(uv, 0, nv21, ySize, uvSize)
+    return nv21
+}
 
 
 
@@ -106,17 +140,25 @@ internal class AndroidARView(
                         "getAnchorPose" -> {
                             val anchorNode = arSceneView.scene.findByName(call.argument("anchorId")) as AnchorNode?
                             if (anchorNode != null) {
-                                result.success(serializePose(anchorNode.anchor!!.pose))
+                                result.success(serializePose(anchorNode.anchor!!.getPose()))
                             } else {
                                 result.error("Error", "could not get anchor pose", null)
                             }
                         }
                         "getCameraPose" -> {
-                            val cameraPose = arSceneView.arFrame?.camera?.displayOrientedPose
+                            val cameraPose = arSceneView.arFrame?.camera?.pose
                             if (cameraPose != null) {
                                 result.success(serializePose(cameraPose!!))
                             } else {
                                 result.error("Error", "could not get camera pose", null)
+                            }
+                        }
+                        "getCameraIntrinsics" -> {
+                            val cameraIntrinsics = arSceneView.arFrame?.camera?.imageIntrinsics
+                            if (cameraIntrinsics != null) {
+                                result.success(serializeIntrinsics(cameraIntrinsics!!))
+                            } else {
+                                result.error("Error", "could not get camera Intrinsics", null)
                             }
                         }
                         "snapshot" -> {
@@ -148,6 +190,38 @@ internal class AndroidARView(
                                 }
                                 handlerThread.quitSafely();
                             }, Handler(handlerThread.looper));
+                        }
+                        "clean_snapshot" -> {
+                            // Clean snapshot, an screenshot without AR objects or anchors
+                            var image = arSceneView.arFrame!!.acquireCameraImage()
+
+                            var image_bitmap: Bitmap? = null
+
+                            if (image.format == ImageFormat.JPEG) {
+                                // Handle JPEG format (direct conversion)
+                                val buffer = image.planes[0].buffer
+                                val byteArray = ByteArray(buffer.remaining())
+                                buffer.get(byteArray)
+                                image_bitmap = BitmapFactory.decodeByteArray(byteArray, 0, byteArray.size)
+                            } else if (image.format == ImageFormat.YUV_420_888) {
+                                // Convert YUV_420_888 to NV21 ByteArray
+                                val nv21 = imageToNV21(image)
+                                val yuvImage = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
+                                val outputStream = ByteArrayOutputStream()
+                                yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 100, outputStream)
+                                val jpegByteArray = outputStream.toByteArray()
+                                image_bitmap = BitmapFactory.decodeByteArray(jpegByteArray, 0, jpegByteArray.size)
+                            } else {
+                                image.close();
+                                return result.error("e", "Unsupported image format: ${image.format}", null)
+                            }
+
+                            
+                            val outputStream = ByteArrayOutputStream()
+                            image_bitmap.compress(Bitmap.CompressFormat.PNG, 90, outputStream) // Compress as PNG
+                            val data = outputStream.toByteArray()
+                            image.close();
+                            result.success(data)
                         }
                         "dispose" -> {
                             dispose()

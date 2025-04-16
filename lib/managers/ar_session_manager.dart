@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:ar_flutter_plugin_flutterflow/datatypes/config_planedetection.dart';
 import 'package:ar_flutter_plugin_flutterflow/models/ar_anchor.dart';
 import 'package:ar_flutter_plugin_flutterflow/models/ar_hittest_result.dart';
+import 'package:ar_flutter_plugin_flutterflow/models/intrinsics.dart';
 import 'package:ar_flutter_plugin_flutterflow/utils/json_converters.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -52,6 +53,18 @@ class ARSessionManager {
       final serializedCameraPose =
           await _channel.invokeMethod<List<dynamic>>('getCameraPose', {});
       return MatrixConverter().fromJson(serializedCameraPose!);
+    } catch (e) {
+      print('Error caught: ' + e.toString());
+      return null;
+    }
+  }
+
+  /// Returns the camera pose in Matrix4 format with respect to the world coordinate system of the [ARView]
+  Future<CameraIntrinsics?> getCameraIntrinsics() async {
+    try {
+      final serializedCameraPose =
+          await _channel.invokeMethod<List<dynamic>>('getCameraIntrinsics', {});
+      return CameraIntrinsics.fromJson(serializedCameraPose!);
     } catch (e) {
       print('Error caught: ' + e.toString());
       return null;
@@ -220,7 +233,7 @@ class ARSessionManager {
 
   /// Returns a future ImageProvider that contains a screenshot of the current AR Scene
   Future<ImageProvider> snapshot() async {
-    final result = await _channel.invokeMethod<Uint8List>('snapshot');
+    final result = await _channel.invokeMethod<Uint8List>('clean_snapshot');
     return MemoryImage(result!);
   }
 }
